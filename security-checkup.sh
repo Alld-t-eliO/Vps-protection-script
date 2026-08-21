@@ -2,14 +2,25 @@
 
 set -u
 
-REPORT="<YOUR PATH>/security-logs/security-report-$(date +%Y-%m-%d_%H-%M-%S).txt"
+REPORT="$HOME/security-logs/security-report-$(date +%Y-%m-%d_%H-%M-%S).txt"
+
+mkdir -p "$HOME/security-logs"
+
 
 log() {
     echo "$1" | tee -a "$REPORT"
 }
 
 
-ip() {
+section() {
+    log ""
+    log "=============================="
+    log " $1"
+    log "=============================="
+}
+
+
+ip_active_connections() {
     section "CONNECTED PUBLIC IPs"
 
     connected_ips=$(
@@ -31,19 +42,30 @@ ip() {
 }
 
 
-check_ssh () {
-    section "SSHH CONFIGURATION"
+past_connected_ips() {
+    section "PAST CONNECTED IPs"
+
+    journalctl -u ssh --no-pager \
+    | grep "Accepted" \
+    | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+    | sort -u \
+    | tee -a "$REPORT"
+}
+
+
+ssh_configuration() {
+    section "SSH CONFIGURATION"
 
     ssh_config=$(sshd -T 2>/dev/null)
 
-    root_login=$(echo "ssh_config"\
-        | awk '$1 == "passwordauthentification" {print $2}')
+    root_login=$(echo "$ssh_config" \
+        | awk '$1 == "permitrootlogin" {print $2}')
 
     password_auth=$(echo "$ssh_config" \
-        | awk '$1 == "passwordauthentification" {print $2}')
+        | awk '$1 == "passwordauthentication" {print $2}')
 
     log "PermitRootLogin: $root_login"
-    log "PasswordAuthentification: $password_auth"
+    log "PasswordAuthentication: $password_auth"
 
     if [ "$root_login" = "no" ]; then
         log "[OK] Root login is disabled"
@@ -68,17 +90,6 @@ ssh_ips() {
     | sort \
     | uniq -c \
     | sort -nr \
-    | tee -a "$REPORT"
-}
-
-
-past_connected_ips() {
-    section "PAST CONNECTED IPs"
-
-    journalctl -u ssh --no-pager \
-    | grep "Accepted" \
-    | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
-    | sort -u \
     | tee -a "$REPORT"
 }
 
@@ -111,14 +122,34 @@ header() {
     log "=============================="
     log ""
     log "Date: $(date)"
-    log "hostname: $(hostname)"
+    log "Hostname: $(hostname)"
     log "Kernel: $(uname -r)"
-    log "uptime: $(uptime -p)" 
+    log "Uptime: $(uptime -p)"
 }
 
 
-header
-check_users
-check_network
-check_ssh
-ip
+check_ip() {
+    section "NETWORK / IP"
+
+    ip_active_connections
+    past_connected_ips
+}
+
+
+check_ssh() {
+    section "SSH"
+
+    ssh_configuration
+    ssh_ips
+}
+
+
+main() {
+    log ""
+    header
+    check_users
+    check_ip
+    check_ssh
+}
+
+main
