@@ -2,7 +2,7 @@
 
 set -u
 
-REPORT="./ubuntu/home/security-logs/security-report-$(date +%Y-%m-%d_%H-%M-%S).txt"
+REPORT="<Your path>/security-logs/security-report-$(date +%Y-%m-%d_%H-%M-%S).txt"
 
 log() {
     echo "$1" | tee -a "$REPORT"
