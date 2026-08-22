@@ -112,6 +112,7 @@ ssh_configuration() {
     fi
 }
 
+
 ssh_fail2ban() {
     section "FAIL2BAN SSH"
 
@@ -150,18 +151,36 @@ ssh_current_connections() {
 firewall_status() {
     section "FIREWALL STATUS"
 
-    if ! command -v firewall-client >/dev/null 2&1; then
-    
+    if ! command -v ufw >/dev/null 2>&1; then
+        log "[CRITIC] UFW no installed."
+        return
+    fi 
+
+    if ! ufw status | grep -q "Status: active"; then
+        log "[CRITIC] UFW not activated"
+        return
+    fi
+
+    log "[OK] UFW firewall is active."
+
+    ufw status verbose \
+    | tee -a "$REPORT"
 }
 
 
 firewall_rules() {
+    section "FIREWALL RULES"
 
+    ufw status numbered \
+    | tee -a "$REPORT"
 }
 
 
 network_listening_ports() {
+    section "LISTENING PORTS"
 
+    ss -tulpn \
+    | tee -a "REPORT"
 }
 
 
@@ -217,6 +236,7 @@ check_ssh_activity() {
 
 check_firewall() {
     section "FIREWALL ACTIVITY/STATES"
+
     firewall_status
     firewall_rules
     network_listening_ports
@@ -231,6 +251,7 @@ main() {
     check_ip
     check_ssh
     check_ssh_activity
+    check_firewall
 
     log ""
     log "Report saved to: $REPORT"
