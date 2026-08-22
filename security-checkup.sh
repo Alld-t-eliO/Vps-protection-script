@@ -184,6 +184,83 @@ network_listening_ports() {
 }
 
 
+docker_available () {
+    command -v docker >/dev/null 2>&1 \
+    && docker info </dev/null 2>&1
+}
+
+
+docker_status() {
+    section "STATUS DOCKER"
+
+    if ! command -v docker >/dev/null 2>&1; then
+        log "[INFO] Docker is not installed."
+        return
+    fi
+
+    if systemctl is-active --quiet docker; then
+        log "[OK] Docker is active"
+    else 
+        log "[WARNING]Docker is inactive."
+    fi
+
+    systemctl is-active docker \
+    | tee -a "$REPORT"
+}
+
+
+docker_containers() {
+    section "DOCKER CONTAINERS"
+
+    if ! docker_available; then
+        log "[INFO] Docker unavailable. Skipping container check"
+        return
+    fi
+
+    docker ps -a \
+        --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" \
+}
+
+
+docker_exposed_ports() {
+    section "DOCKER EXPOSED PORTS"
+
+    if ! docker_available; then
+        log "[WARNING] Docker unavailable "
+        return        
+    fi
+
+    docker ps --format "table {{.Names}}\t{{.Ports}}" \
+    | tee -a "$REPORT"
+}
+
+
+docker_privileged_containers() {
+    section "DOCKER PRIVILEGED CONTAINERS"
+
+    if ! docker_available; then
+        log "[WARNING] Docker unavailable."
+        return
+    fi
+
+    for container in $(docker ps -a --format '{{.Names}}'); do
+
+        privileged=$(
+            docker inspect \
+                --format '{{.HostConfig.Privileged}}' \
+                "$container"
+        )
+
+        if [ "$privileged" = "true" ]; then
+            log "[WARNING] $container is running in privileged mode."
+        else
+            log "[OK] $container is not privileged."
+        fi
+
+    done
+}
+
+
 check_ip() {
     section "NETWORK / IP"
 
@@ -240,6 +317,15 @@ check_firewall() {
     firewall_status
     firewall_rules
     network_listening_ports
+}
+
+check_docker() {
+    section "DOCKER"
+
+    docker_status
+    docker_containers
+    docker_exposed_ports
+    docker_privileged_containers
 }
 
 
