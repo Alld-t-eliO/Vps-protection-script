@@ -261,6 +261,77 @@ docker_privileged_containers() {
 }
 
 
+docker_restart_policies() {
+    section "DOCKER RESTART POLICIES"
+
+    if ! docker_avilable; then 
+        log "[WARNING] Docker unavailble"
+        return
+    fi
+
+    container=$(docker ps -aq)
+
+    if [-z "$containers" ]; then
+        log "[INFO] No Docker contwiners found."
+        return
+    fi
+
+    docker inspect\
+        --format '{{.Name}} -> {{.HostConfig.RestartPolicy.Name}}' \
+        $containers \
+    | tee -a "$REPORT"
+}
+
+
+docker_mounts() {
+    section "DOCKER MOUNTS"
+
+    if ! docker_available; then
+        log "[WARNING] Docker unavailable"
+        return
+    fi
+
+    container=$(docker ps -aq)
+
+    if [ -z "$containers" ]; then
+         log "[INFO] No Docker containers found"
+         return
+    fi
+
+    docker inspect \
+        --format '{{.Name}} -> {{range .Mounts}}{{.Source}}:{{.Destination}} {{end}}' \
+        $containers \
+    | tee -a "$REPORT"
+}
+
+
+docker_users() {
+    section "DOCKER CONTAINER USERS"
+
+    if ! docker_available; then
+        log "[WARNING] Docker unavailable."
+        return
+    fi
+
+    for container in $(docker ps -a --format '{{.Names}}'); do
+
+        user=$(
+            docker inspect \
+                --format '{{.Config.User}}' \
+                "$container"
+        )
+
+        if [ -z "$user" ]; then
+            log "[WARNING] $container uses the image default user (possibly root)."
+        elif [ "$user" = "root" ] || [ "$user" = "0" ]; then
+            log "[WARNING] $container is configured to run as root."
+        else
+            log "[OK] $container runs as user: $user"
+        fi
+
+    done
+}
+
 check_ip() {
     section "NETWORK / IP"
 
@@ -326,6 +397,9 @@ check_docker() {
     docker_containers
     docker_exposed_ports
     docker_privileged_containers
+    docker_restart_policies
+    docker_mounts
+    docker_users
 }
 
 
