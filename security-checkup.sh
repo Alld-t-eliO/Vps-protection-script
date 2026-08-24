@@ -100,10 +100,6 @@ check_users() {
 }
 
 
-# ============================================================
-# NETWORK / IP
-# ============================================================
-
 ip_active_connections() {
     section "CONNECTED PUBLIC IPs"
 
@@ -140,10 +136,6 @@ check_ip() {
     ip_active_connections
 }
 
-
-# ============================================================
-# SSH
-# ============================================================
 
 ssh_configuration() {
     section "SSH CONFIGURATION"
@@ -287,10 +279,6 @@ check_ssh_activity() {
 }
 
 
-# ============================================================
-# FIREWALL
-# ============================================================
-
 firewall_status() {
     section "FIREWALL STATUS"
 
@@ -332,10 +320,6 @@ check_firewall() {
     network_listening_ports
 }
 
-
-# ============================================================
-# DOCKER
-# ============================================================
 
 docker_available() {
     command -v docker >/dev/null 2>&1 \
@@ -515,10 +499,6 @@ check_docker() {
 }
 
 
-# ============================================================
-# SERVICES / PROCESSES
-# ============================================================
-
 services_running() {
     section "RUNNING SERVICES"
 
@@ -604,10 +584,6 @@ check_services_processes() {
 }
 
 
-# ============================================================
-# UPDATES / PACKAGES
-# ============================================================
-
 packages_updates_available() {
     section "AVAILABLE PACKAGE UPDATES"
 
@@ -678,10 +654,6 @@ check_updates() {
     system_reboot_required
 }
 
-
-# ============================================================
-# FILESYSTEM / PERMISSIONS
-# ============================================================
 
 filesystem_world_writable() {
     section "WORLD-WRITABLE FILES"
@@ -759,10 +731,6 @@ check_filesystem() {
     filesystem_sensitive_permissions
 }
 
-
-# ============================================================
-# MAIN
-# ============================================================
 
 main() {
     log ""
