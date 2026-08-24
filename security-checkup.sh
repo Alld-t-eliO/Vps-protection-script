@@ -2,29 +2,75 @@
 
 set -u
 
+
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+PURPLE='\033[0;35m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RESET='\033[0m'
+
+
 REPORT="$HOME/security-logs/security-report-$(date +%Y-%m-%d_%H-%M-%S).txt"
 
 mkdir -p "$HOME/security-logs"
 
 
 log() {
-    echo "$1" | tee -a "$REPORT"
+    echo -e "${CYAN}$1${RESET}"
+    echo "$1" >> "$REPORT"
+}
+
+
+log_info() {
+    echo -e "${CYAN}[INFO] $1${RESET}"
+    echo "[INFO] $1" >> "$REPORT"
+}
+
+
+log_ok() {
+    echo -e "${GREEN}[OK] $1${RESET}"
+    echo "[OK] $1" >> "$REPORT"
+}
+
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING] $1${RESET}"
+    echo "[WARNING] $1" >> "$REPORT"
+}
+
+
+log_error() {
+    echo -e "${RED}[ERROR] $1${RESET}"
+    echo "[ERROR] $1" >> "$REPORT"
+}
+
+
+log_critical() {
+    echo -e "${RED}[CRITICAL] $1${RESET}"
+    echo "[CRITICAL] $1" >> "$REPORT"
 }
 
 
 section() {
-    log ""
-    log "=============================="
-    log " $1"
-    log "=============================="
+    echo ""
+
+    echo -e "${PURPLE}==============================${RESET}"
+    echo -e "${PURPLE} $1${RESET}"
+    echo -e "${PURPLE}==============================${RESET}"
+
+    {
+        echo ""
+        echo "=============================="
+        echo " $1"
+        echo "=============================="
+    } >> "$REPORT"
 }
 
 
 header() {
-    log "=============================="
-    log "    VPS SECURITY CHECKUP"
-    log "=============================="
-    log ""
+    section "VPS SECURITY CHECKUP"
+
     log "Date: $(date)"
     log "Hostname: $(hostname)"
     log "Kernel: $(uname -r)"
@@ -47,12 +93,16 @@ check_users() {
     root_count=$(echo "$root_users" | wc -l)
 
     if [ "$root_count" -eq 1 ]; then
-        log "[OK] Only one UID 0 account exists"
+        log_ok "Only one UID 0 account exists."
     else
-        log "[CRITICAL] Multiple UID 0 accounts detected: $root_users"
+        log_critical "Multiple UID 0 accounts detected: $root_users"
     fi
 }
 
+
+# ============================================================
+# NETWORK / IP
+# ============================================================
 
 ip_active_connections() {
     section "CONNECTED PUBLIC IPs"
@@ -66,19 +116,42 @@ ip_active_connections() {
     )
 
     if [ -z "$connected_ips" ]; then
-        log "No active remote TCP connections detected."
+        log_info "No active remote TCP connections detected."
         return
     fi
 
     while read -r remote_ip; do
-        log " - $remote_ip"
+        [ -n "$remote_ip" ] && log " - $remote_ip"
     done <<< "$connected_ips"
 }
 
 
+network_listening_ports() {
+    section "LISTENING PORTS"
+
+    ss -tulpn \
+    | tee -a "$REPORT"
+}
+
+
+check_ip() {
+    section "NETWORK / IP"
+
+    ip_active_connections
+}
+
+
+# ============================================================
+# SSH
+# ============================================================
 
 ssh_configuration() {
     section "SSH CONFIGURATION"
+
+    if ! command -v sshd >/dev/null 2>&1; then
+        log_error "sshd command not found."
+        return
+    fi
 
     ssh_config=$(sshd -T 2>/dev/null)
 
@@ -96,19 +169,19 @@ ssh_configuration() {
     log "PasswordAuthentication: $password_auth"
 
     if [ -z "$root_login" ]; then
-        log "[ERROR] Unable to determine PermitRootLogin"
+        log_error "Unable to determine PermitRootLogin."
     elif [ "$root_login" = "no" ]; then
-        log "[OK] Root login is disabled"
+        log_ok "Root SSH login is disabled."
     else
-        log "[CRITICAL] Root SSH login is not fully disabled: $root_login"
+        log_critical "Root SSH login is not fully disabled: $root_login"
     fi
 
     if [ -z "$password_auth" ]; then
-        log "[ERROR] Unable to determine PasswordAuthentication"
+        log_error "Unable to determine PasswordAuthentication."
     elif [ "$password_auth" = "no" ]; then
-        log "[OK] Password authentication is disabled"
+        log_ok "SSH password authentication is disabled."
     else
-        log "[CRITICAL] SSH password authentication is enabled"
+        log_critical "SSH password authentication is enabled."
     fi
 }
 
@@ -117,16 +190,64 @@ ssh_fail2ban() {
     section "FAIL2BAN SSH"
 
     if ! command -v fail2ban-client >/dev/null 2>&1; then
-        log "[INFO] Fail2Ban is not installed"
+        log_info "Fail2Ban is not installed."
         return
     fi
 
     if ! systemctl is-active --quiet fail2ban; then
-        log "[WARNING] Fail2Ban is not running"
+        log_warning "Fail2Ban is not running."
         return
     fi
 
+    log_ok "Fail2Ban is running."
+
     fail2ban-client status sshd \
+    | tee -a "$REPORT"
+}
+
+
+ssh_successful_connections() {
+    section "SUCCESSFUL SSH CONNECTIONS"
+
+    connections=$(
+        journalctl -u ssh --no-pager -q \
+        | grep "Accepted" \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | sort \
+        | uniq -c \
+        | sort -nr || true
+    )
+
+    if [ -z "$connections" ]; then
+        log_info "No successful SSH connections found in available logs."
+        return
+    fi
+
+    echo "$connections" \
+    | tee -a "$REPORT"
+}
+
+
+ssh_failed_attempts() {
+    section "FAILED SSH ATTEMPTS - LAST 24H"
+
+    attempts=$(
+        journalctl -u ssh --since "24 hours ago" --no-pager -q \
+        | grep -E "Failed password|Invalid user|authentication failure" \
+        | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+        | sort \
+        | uniq -c \
+        | sort -nr || true
+    )
+
+    if [ -z "$attempts" ]; then
+        log_ok "No failed SSH attempts detected in the last 24 hours."
+        return
+    fi
+
+    log_warning "Failed SSH attempts detected."
+
+    echo "$attempts" \
     | tee -a "$REPORT"
 }
 
@@ -140,7 +261,7 @@ ssh_current_connections() {
     )
 
     if [ -z "$connections" ]; then
-        log "No current SSH connections detected."
+        log_info "No current SSH connections detected."
         return
     fi
 
@@ -148,20 +269,42 @@ ssh_current_connections() {
     | tee -a "$REPORT"
 }
 
+
+check_ssh() {
+    section "SSH"
+
+    ssh_configuration
+    ssh_fail2ban
+}
+
+
+check_ssh_activity() {
+    section "SSH ACTIVITY"
+
+    ssh_successful_connections
+    ssh_failed_attempts
+    ssh_current_connections
+}
+
+
+# ============================================================
+# FIREWALL
+# ============================================================
+
 firewall_status() {
     section "FIREWALL STATUS"
 
     if ! command -v ufw >/dev/null 2>&1; then
-        log "[CRITIC] UFW no installed."
-        return
-    fi 
-
-    if ! ufw status | grep -q "Status: active"; then
-        log "[CRITIC] UFW not activated"
+        log_critical "UFW is not installed."
         return
     fi
 
-    log "[OK] UFW firewall is active."
+    if ! ufw status | grep -q "Status: active"; then
+        log_critical "UFW is not active."
+        return
+    fi
+
+    log_ok "UFW firewall is active."
 
     ufw status verbose \
     | tee -a "$REPORT"
@@ -171,37 +314,47 @@ firewall_status() {
 firewall_rules() {
     section "FIREWALL RULES"
 
+    if ! command -v ufw >/dev/null 2>&1; then
+        log_warning "UFW unavailable."
+        return
+    fi
+
     ufw status numbered \
     | tee -a "$REPORT"
 }
 
 
-network_listening_ports() {
-    section "LISTENING PORTS"
+check_firewall() {
+    section "FIREWALL / NETWORK SECURITY"
 
-    ss -tulpn \
-    | tee -a "REPORT"
+    firewall_status
+    firewall_rules
+    network_listening_ports
 }
 
 
-docker_available () {
+# ============================================================
+# DOCKER
+# ============================================================
+
+docker_available() {
     command -v docker >/dev/null 2>&1 \
-    && docker info </dev/null 2>&1
+    && docker info >/dev/null 2>&1
 }
 
 
 docker_status() {
-    section "STATUS DOCKER"
+    section "DOCKER STATUS"
 
     if ! command -v docker >/dev/null 2>&1; then
-        log "[INFO] Docker is not installed."
+        log_info "Docker is not installed."
         return
     fi
 
     if systemctl is-active --quiet docker; then
-        log "[OK] Docker is active"
-    else 
-        log "[WARNING]Docker is inactive."
+        log_ok "Docker is active."
+    else
+        log_warning "Docker is inactive."
     fi
 
     systemctl is-active docker \
@@ -213,12 +366,13 @@ docker_containers() {
     section "DOCKER CONTAINERS"
 
     if ! docker_available; then
-        log "[INFO] Docker unavailable. Skipping container check"
+        log_info "Docker unavailable. Skipping container check."
         return
     fi
 
     docker ps -a \
         --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" \
+    | tee -a "$REPORT"
 }
 
 
@@ -226,11 +380,12 @@ docker_exposed_ports() {
     section "DOCKER EXPOSED PORTS"
 
     if ! docker_available; then
-        log "[WARNING] Docker unavailable "
-        return        
+        log_warning "Docker unavailable."
+        return
     fi
 
-    docker ps --format "table {{.Names}}\t{{.Ports}}" \
+    docker ps \
+        --format "table {{.Names}}\t{{.Ports}}" \
     | tee -a "$REPORT"
 }
 
@@ -239,11 +394,18 @@ docker_privileged_containers() {
     section "DOCKER PRIVILEGED CONTAINERS"
 
     if ! docker_available; then
-        log "[WARNING] Docker unavailable."
+        log_warning "Docker unavailable."
         return
     fi
 
-    for container in $(docker ps -a --format '{{.Names}}'); do
+    containers=$(docker ps -a --format '{{.Names}}')
+
+    if [ -z "$containers" ]; then
+        log_info "No Docker containers found."
+        return
+    fi
+
+    while read -r container; do
 
         privileged=$(
             docker inspect \
@@ -252,31 +414,31 @@ docker_privileged_containers() {
         )
 
         if [ "$privileged" = "true" ]; then
-            log "[WARNING] $container is running in privileged mode."
+            log_warning "$container is running in privileged mode."
         else
-            log "[OK] $container is not privileged."
+            log_ok "$container is not privileged."
         fi
 
-    done
+    done <<< "$containers"
 }
 
 
 docker_restart_policies() {
     section "DOCKER RESTART POLICIES"
 
-    if ! docker_avilable; then 
-        log "[WARNING] Docker unavailble"
+    if ! docker_available; then
+        log_warning "Docker unavailable."
         return
     fi
 
-    container=$(docker ps -aq)
+    containers=$(docker ps -aq)
 
-    if [-z "$containers" ]; then
-        log "[INFO] No Docker contwiners found."
+    if [ -z "$containers" ]; then
+        log_info "No Docker containers found."
         return
     fi
 
-    docker inspect\
+    docker inspect \
         --format '{{.Name}} -> {{.HostConfig.RestartPolicy.Name}}' \
         $containers \
     | tee -a "$REPORT"
@@ -287,15 +449,15 @@ docker_mounts() {
     section "DOCKER MOUNTS"
 
     if ! docker_available; then
-        log "[WARNING] Docker unavailable"
+        log_warning "Docker unavailable."
         return
     fi
 
-    container=$(docker ps -aq)
+    containers=$(docker ps -aq)
 
     if [ -z "$containers" ]; then
-         log "[INFO] No Docker containers found"
-         return
+        log_info "No Docker containers found."
+        return
     fi
 
     docker inspect \
@@ -309,11 +471,18 @@ docker_users() {
     section "DOCKER CONTAINER USERS"
 
     if ! docker_available; then
-        log "[WARNING] Docker unavailable."
+        log_warning "Docker unavailable."
         return
     fi
 
-    for container in $(docker ps -a --format '{{.Names}}'); do
+    containers=$(docker ps -a --format '{{.Names}}')
+
+    if [ -z "$containers" ]; then
+        log_info "No Docker containers found."
+        return
+    fi
+
+    while read -r container; do
 
         user=$(
             docker inspect \
@@ -322,73 +491,16 @@ docker_users() {
         )
 
         if [ -z "$user" ]; then
-            log "[WARNING] $container uses the image default user (possibly root)."
+            log_warning "$container uses the image default user (possibly root)."
         elif [ "$user" = "root" ] || [ "$user" = "0" ]; then
-            log "[WARNING] $container is configured to run as root."
+            log_warning "$container is configured to run as root."
         else
-            log "[OK] $container runs as user: $user"
+            log_ok "$container runs as user: $user"
         fi
 
-    done
+    done <<< "$containers"
 }
 
-check_ip() {
-    section "NETWORK / IP"
-
-    ip_active_connections
-}
-
-
-check_ssh() {
-    section "SSH"
-
-    ssh_configuration
-    ssh_fail2ban
-}
-
-
-ssh_successful_connections() {
-    section "SUCCESSFUL SSH CONNECTIONS"
-
-    journalctl -u ssh --no-pager -q \
-    | grep "Accepted" \
-    | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
-    | sort \
-    | uniq -c \
-    | sort -nr \
-    | tee -a "$REPORT"
-}
-
-
-ssh_failed_attempts() {
-    section "FAILED SSH ATTEMPTS - LAST 24H"
-
-    journalctl -u ssh --since "24 hours ago" --no-pager -q \
-    | grep -E "Failed password|Invalid user|authentication failure" \
-    | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
-    | sort \
-    | uniq -c \
-    | sort -nr \
-    | tee -a "$REPORT"
-}
-
-
-check_ssh_activity() {
-    section "SSH ACTIVITY"
-
-    ssh_successful_connections
-    ssh_failed_attempts
-    ssh_current_connections
-}
-
-
-check_firewall() {
-    section "FIREWALL ACTIVITY/STATES"
-
-    firewall_status
-    firewall_rules
-    network_listening_ports
-}
 
 check_docker() {
     section "DOCKER"
@@ -403,17 +515,273 @@ check_docker() {
 }
 
 
+# ============================================================
+# SERVICES / PROCESSES
+# ============================================================
+
+services_running() {
+    section "RUNNING SERVICES"
+
+    systemctl \
+        --type=service \
+        --state=running \
+        --no-pager \
+    | tee -a "$REPORT"
+}
+
+
+services_enabled() {
+    section "ENABLED SERVICES"
+
+    systemctl list-unit-files \
+        --type=service \
+        --state=enabled \
+        --no-pager \
+    | tee -a "$REPORT"
+}
+
+
+services_failed() {
+    section "FAILED SERVICES"
+
+    failed_services=$(
+        systemctl --failed \
+            --type=service \
+            --no-pager \
+            --no-legend
+    )
+
+    if [ -z "$failed_services" ]; then
+        log_ok "No failed services detected."
+        return
+    fi
+
+    log_warning "Failed services detected:"
+
+    echo "$failed_services" \
+    | tee -a "$REPORT"
+}
+
+
+processes_root() {
+    section "ROOT PROCESSES"
+
+    ps -eo user,pid,ppid,%cpu,%mem,comm \
+    | awk 'NR == 1 || $1 == "root"' \
+    | tee -a "$REPORT"
+}
+
+
+processes_top_cpu() {
+    section "TOP CPU PROCESSES"
+
+    ps -eo pid,user,%cpu,%mem,comm \
+        --sort=-%cpu \
+    | head -n 11 \
+    | tee -a "$REPORT"
+}
+
+
+processes_top_memory() {
+    section "TOP MEMORY PROCESSES"
+
+    ps -eo pid,user,%cpu,%mem,comm \
+        --sort=-%mem \
+    | head -n 11 \
+    | tee -a "$REPORT"
+}
+
+
+check_services_processes() {
+    section "SERVICES / PROCESSES"
+
+    services_running
+    services_enabled
+    services_failed
+    processes_root
+    processes_top_cpu
+    processes_top_memory
+}
+
+
+# ============================================================
+# UPDATES / PACKAGES
+# ============================================================
+
+packages_updates_available() {
+    section "AVAILABLE PACKAGE UPDATES"
+
+    updates=$(
+        apt list --upgradable 2>/dev/null \
+        | tail -n +2
+    )
+
+    if [ -z "$updates" ]; then
+        log_ok "No package updates available."
+        return
+    fi
+
+    count=$(echo "$updates" | wc -l)
+
+    log_warning "$count package update(s) available."
+
+    echo "$updates" \
+    | tee -a "$REPORT"
+}
+
+
+packages_security_updates() {
+    section "SECURITY UPDATES"
+
+    security_updates=$(
+        apt list --upgradable 2>/dev/null \
+        | grep -i security || true
+    )
+
+    if [ -z "$security_updates" ]; then
+        log_ok "No security updates detected."
+        return
+    fi
+
+    count=$(echo "$security_updates" | wc -l)
+
+    log_warning "$count security update(s) available."
+
+    echo "$security_updates" \
+    | tee -a "$REPORT"
+}
+
+
+system_reboot_required() {
+    section "REBOOT REQUIRED"
+
+    if [ -f /var/run/reboot-required ]; then
+        log_warning "System reboot is required."
+
+        if [ -f /var/run/reboot-required.pkgs ]; then
+            log "Packages requiring reboot:"
+
+            cat /var/run/reboot-required.pkgs \
+            | tee -a "$REPORT"
+        fi
+    else
+        log_ok "No reboot required."
+    fi
+}
+
+
+check_updates() {
+    section "UPDATES / PACKAGES"
+
+    packages_updates_available
+    packages_security_updates
+    system_reboot_required
+}
+
+
+# ============================================================
+# FILESYSTEM / PERMISSIONS
+# ============================================================
+
+filesystem_world_writable() {
+    section "WORLD-WRITABLE FILES"
+
+    files=$(
+        find / -xdev -type f -perm -0002 2>/dev/null
+    )
+
+    if [ -z "$files" ]; then
+        log_ok "No world-writable files detected."
+        return
+    fi
+
+    count=$(echo "$files" | wc -l)
+
+    log_warning "$count world-writable file(s) detected."
+
+    echo "$files" \
+    | tee -a "$REPORT"
+}
+
+
+filesystem_suid_sgid() {
+    section "SUID / SGID FILES"
+
+    files=$(
+        find / -xdev -type f \
+        \( -perm -4000 -o -perm -2000 \) \
+        2>/dev/null
+    )
+
+    if [ -z "$files" ]; then
+        log_ok "No SUID/SGID files detected."
+        return
+    fi
+
+    log_info "SUID/SGID files detected for review:"
+
+    echo "$files" \
+    | tee -a "$REPORT"
+}
+
+
+filesystem_sensitive_permissions() {
+    section "SENSITIVE FILE PERMISSIONS"
+
+    files=(
+        "/etc/passwd"
+        "/etc/shadow"
+        "/etc/group"
+        "/etc/gshadow"
+        "/etc/ssh/sshd_config"
+    )
+
+    for file in "${files[@]}"; do
+
+        if [ ! -e "$file" ]; then
+            log_warning "$file does not exist."
+            continue
+        fi
+
+        permissions=$(stat -c "%a" "$file")
+        owner=$(stat -c "%U:%G" "$file")
+
+        log "$file -> permissions=$permissions owner=$owner"
+    done
+}
+
+
+check_filesystem() {
+    section "FILESYSTEM / PERMISSIONS"
+
+    filesystem_world_writable
+    filesystem_suid_sgid
+    filesystem_sensitive_permissions
+}
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
 main() {
     log ""
 
     header
+
     check_users
     check_ip
     check_ssh
     check_ssh_activity
     check_firewall
+    check_docker
+    check_services_processes
+    check_updates
+    check_filesystem
 
-    log ""
+    section "END OF CHECKUP"
+
+    log_ok "Security checkup completed."
     log "Report saved to: $REPORT"
 }
 
