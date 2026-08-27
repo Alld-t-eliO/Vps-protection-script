@@ -1,26 +1,55 @@
 firewall_status() {
-    section "FIREWALL STATUS"
+    subsection "FIREWALL STATUS"
 
-    if ! command -v ufw >/dev/null 2>&1; then
-        log "[CRITIC] UFW no installed."
-        return
-    fi 
+    firewall="/usr/libexec/ApplicationFirewall/socketfilterfw"
 
-    if ! ufw status | grep -q "Status: active"; then
-        log "[CRITIC] UFW not activated"
+    if [ ! -x "$firewall" ]; then
+        log_error "macOS firewall utility not found."
         return
     fi
 
-    log "[OK] UFW firewall is active."
+    status=$("$firewall" --getglobalstate 2>/dev/null)
 
-    ufw status verbose \
-    | tee -a "$REPORT"
+    log "$status"
+
+    if echo "$status" | grep -qi "enabled"; then
+        log_ok "macOS Application Firewall is enabled."
+    else
+        log_warning "macOS Application Firewall is disabled."
+    fi
+}
+
+
+firewall_stealth_mode() {
+    subsection "FIREWALL STEALTH MODE"
+
+    firewall="/usr/libexec/ApplicationFirewall/socketfilterfw"
+
+    status=$("$firewall" --getstealthmode 2>/dev/null)
+
+    log "$status"
+
+    if echo "$status" | grep -qi "enabled"; then
+        log_ok "Stealth mode is enabled."
+    else
+        log_info "Stealth mode is disabled."
+    fi
 }
 
 
 firewall_rules() {
-    section "FIREWALL RULES"
+    subsection "FIREWALL APPLICATION RULES"
 
-    ufw status numbered \
-    | tee -a "$REPORT"
+    /usr/libexec/ApplicationFirewall/socketfilterfw \
+        --listapps 2>/dev/null \
+    | append_output
+}
+
+
+check_firewall() {
+    section "FIREWALL"
+
+    firewall_status
+    firewall_stealth_mode
+    firewall_rules
 }

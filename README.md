@@ -1,23 +1,50 @@
-# Automatisation Mac vers VPS
+# Mac Security Center
 
-Les commandes sont lancées depuis le Mac, à la racine du projet.
+A modular Bash-based security auditing tool for macOS.
 
-```bash
-cp .vps.env.example .vps.env
-chmod 600 .vps.env
-```
+`main.sh` is the main entry point. It orchestrates category modules from `lib/`, runs selected checks, and writes scan artifacts into `logs_scan/`.
 
-Renseignez `VPS_HOST` dans `.vps.env`. Le script suppose que l'authentification SSH par clé
-fonctionne déjà ; il n'accepte pas de mot de passe en mode interactif pendant une automatisation.
+## Usage
 
 ```bash
-./scripts/vps check
-./scripts/vps deploy
-./scripts/vps status
-./scripts/vps logs
-./scripts/vps restart
-./scripts/vps backup-pull
+./main.sh --all
+./main.sh --security --network --firewall
+./main.sh --persistence --filesystem
+./security-checkup.sh --all
 ```
 
-Le déploiement ne transfère jamais `.env`, `data/`, les environnements virtuels ou les
-sauvegardes locales. Le fichier `.env` de production reste uniquement sur le VPS.
+`security-checkup.sh` is kept as a compatibility wrapper around `main.sh`.
+
+## Scan Artifacts
+
+Each run creates a dedicated directory:
+
+```text
+logs_scan/mac-security-scan-YYYY-MM-DD_HH-MM-SS/
+  report.txt
+  scan.log
+  summary.txt
+  findings.tsv
+  findings.json
+```
+
+`summary.txt` contains the global score and top issues. `findings.json` is intended for automation, comparisons, dashboards, or later export.
+
+## Modules
+
+- `lib/users.sh`: local users and admin group
+- `lib/security.sh`: FileVault, Gatekeeper, SIP, XProtect
+- `lib/network.sh`: interfaces, listening ports, active connections, remote IPs
+- `lib/ssh.sh`: Remote Login and SSH listener
+- `lib/firewall.sh`: Application Firewall and stealth mode
+- `lib/sharing.sh`: selected remote sharing services
+- `lib/persistence.sh`: login items, LaunchAgents, LaunchDaemons, shell startup files
+- `lib/processes.sh`: top CPU, top memory, root processes
+- `lib/services.sh`: Homebrew services
+- `lib/updates.sh`: macOS software updates
+- `lib/filesystem.sh`: SSH key permissions and selected writable paths
+- `lib/docker.sh`: Docker daemon, containers, ports, privileged mode, container users
+
+## Notes
+
+Some macOS checks return more complete data when run with `sudo`.
