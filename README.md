@@ -1,23 +1,90 @@
 # Mac Security Center
 
-A modular Bash-based security auditing tool for macOS.
+Mac Security Center is a modular Bash security and system audit tool for macOS.
 
-`main.sh` is the main entry point. It orchestrates category modules from `lib/`, runs selected checks, and writes scan artifacts into `logs_scan/`.
+It checks local users, Apple security controls, network exposure, SSH/remote access, firewall state, sharing services, persistence locations, Homebrew, filesystem permissions, Docker, and system updates. Every scan creates structured artifacts that can be reviewed by a person or consumed by automation.
 
-## Usage
+## Quick Start
 
 ```bash
+chmod +x main.sh security-checkup.sh install.sh
 ./main.sh --all
-./main.sh --security --network --firewall
-./main.sh --persistence --filesystem
-./security-checkup.sh --all
+```
+
+Some checks return more complete data when run with administrator privileges:
+
+```bash
+sudo ./main.sh --all
 ```
 
 `security-checkup.sh` is kept as a compatibility wrapper around `main.sh`.
 
-## Scan Artifacts
+## Installation
 
-Each run creates a dedicated directory:
+To install a global command:
+
+```bash
+sudo ./install.sh
+mac-checkup --all
+```
+
+You can customize the install target:
+
+```bash
+sudo TARGET_DIR=/usr/local/bin COMMAND_NAME=mac-security-checkup ./install.sh
+```
+
+## Usage
+
+```bash
+./main.sh [scan options] [global options]
+```
+
+Examples:
+
+```bash
+./main.sh --security --network --firewall
+./main.sh --persistence --filesystem
+./main.sh --all --compare-last
+./main.sh --all --strict
+./main.sh --all --output-dir "$HOME/Desktop/mac-security-scans"
+./main.sh --all --json-only
+```
+
+## Scan Options
+
+| Option | Description |
+| --- | --- |
+| `--all` | Run the complete macOS security checkup. |
+| `--users` | List local users and administrator accounts. |
+| `--security` | Check FileVault, Gatekeeper, SIP, XProtect, profiles, and app signatures. |
+| `--network` | Inspect interfaces, listening ports, established connections, DNS, and proxy settings. |
+| `--ssh` | Check Remote Login and SSH listeners. |
+| `--firewall` | Check the macOS Application Firewall, stealth mode, and app rules. |
+| `--sharing` | Detect selected remote sharing services. |
+| `--persistence` | Inspect login items, LaunchAgents, LaunchDaemons, shell startup files, and browser extension paths. |
+| `--processes` | Show top CPU, top memory, and root-owned processes. |
+| `--services` | Check Homebrew services and outdated packages. |
+| `--updates` | Check macOS software updates. |
+| `--filesystem` | Check SSH key permissions, authorized keys, and selected writable paths. |
+| `--docker` | Check Docker daemon state, containers, exposed ports, privileged containers, and container users. |
+
+## Global Options
+
+| Option | Description |
+| --- | --- |
+| `--strict` | Exit with status code `1` when warnings, errors, or critical findings are detected. Useful for CI and scheduled audits. |
+| `--output-dir <path>` | Store scan directories under a custom output directory. |
+| `--compare-last` | Compare current warning/error/critical findings with the previous scan in the same output directory. |
+| `--quiet` | Suppress terminal output while still writing artifacts. |
+| `--json-only` | Suppress normal terminal output and print `findings.json` at the end. |
+| `--no-color` | Disable ANSI color output. |
+| `--config <path>` | Load a custom Bash config file. |
+| `-h`, `--help` | Show help. |
+
+## Output Files
+
+Each scan creates a timestamped directory:
 
 ```text
 logs_scan/mac-security-scan-YYYY-MM-DD_HH-MM-SS/
@@ -26,25 +93,83 @@ logs_scan/mac-security-scan-YYYY-MM-DD_HH-MM-SS/
   summary.txt
   findings.tsv
   findings.json
+  report.html
+  compare-last.txt
 ```
 
-`summary.txt` contains the global score and top issues. `findings.json` is intended for automation, comparisons, dashboards, or later export.
+| File | Purpose |
+| --- | --- |
+| `report.txt` | Human-readable full report. |
+| `scan.log` | Raw scan log for archiving or forwarding. |
+| `summary.txt` | Score, counts, and top issues. |
+| `findings.tsv` | Simple tab-separated finding store used for comparisons. |
+| `findings.json` | Structured output for scripts, dashboards, CI, or ingestion. |
+| `report.html` | Standalone visual report for review in a browser. |
+| `compare-last.txt` | Created when `--compare-last` is used. |
 
-## Modules
+## Finding Levels
 
-- `lib/users.sh`: local users and admin group
-- `lib/security.sh`: FileVault, Gatekeeper, SIP, XProtect
-- `lib/network.sh`: interfaces, listening ports, active connections, remote IPs
-- `lib/ssh.sh`: Remote Login and SSH listener
-- `lib/firewall.sh`: Application Firewall and stealth mode
-- `lib/sharing.sh`: selected remote sharing services
-- `lib/persistence.sh`: login items, LaunchAgents, LaunchDaemons, shell startup files
-- `lib/processes.sh`: top CPU, top memory, root processes
-- `lib/services.sh`: Homebrew services
-- `lib/updates.sh`: macOS software updates
-- `lib/filesystem.sh`: SSH key permissions and selected writable paths
-- `lib/docker.sh`: Docker daemon, containers, ports, privileged mode, container users
+| Level | Meaning |
+| --- | --- |
+| `OK` | Expected secure or healthy state. |
+| `INFO` | Informational data or a non-actionable observation. |
+| `WARNING` | Review recommended. May be acceptable depending on your setup. |
+| `ERROR` | The scanner could not complete an important check. |
+| `CRITICAL` | High-risk condition that should be reviewed quickly. |
 
-## Notes
+Many findings include a `remediation` field in JSON and a `Fix:` hint in terminal output.
 
-Some macOS checks return more complete data when run with `sudo`.
+## Configuration
+
+Default settings live in:
+
+```text
+config/default.conf
+```
+
+Use a custom config file:
+
+```bash
+./main.sh --all --config ./config/workstation.conf
+```
+
+The config is a Bash file, so keep it trusted and local.
+
+## Automation
+
+Run quietly from cron or a scheduled task:
+
+```bash
+./main.sh --all --quiet --compare-last --output-dir "$HOME/security-scans"
+```
+
+Use strict mode in CI:
+
+```bash
+./main.sh --security --firewall --strict
+```
+
+Use JSON output for tooling:
+
+```bash
+./main.sh --all --json-only > latest-findings.json
+```
+
+## Repository Validation
+
+The included GitHub Actions workflow validates Bash syntax for:
+
+- `main.sh`
+- `security-checkup.sh`
+- `install.sh`
+- all `lib/*.sh` modules
+
+## Privacy And Safety
+
+The scanner runs locally and writes local artifacts. It does not upload data by itself.
+
+Reports may contain usernames, process names, local paths, network connections, app names, and Docker metadata. Review reports before sharing them publicly.
+
+## Limitations
+
+This tool is an audit helper, not an antivirus, EDR, or full compliance scanner. Some macOS security data is protected by privacy controls and may require Full Disk Access, administrator privileges, or manual verification.
