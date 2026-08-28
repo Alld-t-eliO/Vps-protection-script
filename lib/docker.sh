@@ -104,9 +104,9 @@ docker_users() {
         )
 
         if [ -z "$user" ]; then
-            log_warning "$container uses the image default user, possibly root." "Set a non-root USER in the Dockerfile or compose service."
+            emit_level "${DOCKER_ROOT_SEVERITY:-WARNING}" "$container uses the image default user, possibly root." "Set a non-root USER in the Dockerfile or compose service."
         elif [ "$user" = "root" ] || [ "$user" = "0" ]; then
-            log_warning "$container is configured to run as root." "Run the container with a non-root user."
+            emit_level "${DOCKER_ROOT_SEVERITY:-WARNING}" "$container is configured to run as root." "Run the container with a non-root user."
         else
             log_ok "$container runs as user: $user"
         fi

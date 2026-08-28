@@ -1,7 +1,11 @@
 ssh_configuration() {
     subsection "SSH CONFIGURATION"
 
-    ssh_config=$(sshd -T 2>/dev/null)
+    if [ -n "${SSHD_T_FIXTURE:-}" ]; then
+        ssh_config=$(cat "$SSHD_T_FIXTURE")
+    else
+        ssh_config=$(sshd -T 2>/dev/null)
+    fi
 
     if [ -z "$ssh_config" ]; then
         log_error "Unable to read effective sshd configuration." "Run this scanner with sudo and confirm openssh-server is installed."
@@ -42,7 +46,7 @@ ssh_configuration() {
     elif [ "$root_login" = "no" ]; then
         log_ok "Root login is disabled."
     else
-        log_critical "Root SSH login is not fully disabled: $root_login" "Set PermitRootLogin no in sshd_config, validate SSH access, then reload sshd."
+        emit_level "${ROOT_SSH_SEVERITY:-CRITICAL}" "Root SSH login is not fully disabled: $root_login" "Set PermitRootLogin no in sshd_config, validate SSH access, then reload sshd."
     fi
 
     if [ -z "$password_auth" ]; then
@@ -50,7 +54,7 @@ ssh_configuration() {
     elif [ "$password_auth" = "no" ]; then
         log_ok "Password authentication is disabled."
     else
-        log_critical "SSH password authentication is enabled." "Use SSH keys, set PasswordAuthentication no, validate access, then reload sshd."
+        emit_level "${SSH_PASSWORD_SEVERITY:-CRITICAL}" "SSH password authentication is enabled." "Use SSH keys, set PasswordAuthentication no, validate access, then reload sshd."
     fi
 
     if [ "$permit_empty_passwords" = "yes" ]; then
@@ -69,17 +73,62 @@ ssh_fail2ban() {
     subsection "FAIL2BAN SSH"
 
     if ! command -v fail2ban-client >/dev/null 2>&1; then
-        log_warning "Fail2Ban is not installed." "Install and configure fail2ban for internet-exposed SSH servers."
+        emit_level "${FAIL2BAN_MISSING_SEVERITY:-WARNING}" "Fail2Ban is not installed." "Install and configure fail2ban for internet-exposed SSH servers."
         return
     fi
 
     if ! systemctl is-active --quiet fail2ban; then
-        log_warning "Fail2Ban is not running." "Start and enable fail2ban with systemctl enable --now fail2ban."
+        emit_level "${FAIL2BAN_MISSING_SEVERITY:-WARNING}" "Fail2Ban is not running." "Start and enable fail2ban with systemctl enable --now fail2ban."
         return
     fi
 
     fail2ban-client status sshd \
     | append_output
+
+    fail2ban-client status 2>/dev/null | append_output
+}
+
+
+ssh_authorized_keys_diff() {
+    subsection "SSH AUTHORIZED_KEYS BASELINE"
+
+    snapshot="$SCAN_DIR/authorized_keys.snapshot"
+    baseline_snapshot="$BASELINE_ROOT/authorized_keys.snapshot"
+    baseline_hash="$BASELINE_ROOT/authorized_keys.snapshot.sha256"
+
+    find /root /home -path "*/.ssh/authorized_keys" -type f -print 2>/dev/null \
+    | while read -r file; do
+        echo "### $file"
+        cat "$file" 2>/dev/null
+    done > "$snapshot"
+
+    if [ ! -s "$snapshot" ]; then
+        log_info "No authorized_keys files found."
+        return
+    fi
+
+    current_hash=$(hash_file "$snapshot")
+    log_info "authorized_keys combined hash: $current_hash"
+
+    if [ "$SAVE_BASELINE" -eq 1 ]; then
+        mkdir -p "$BASELINE_ROOT"
+        cp "$snapshot" "$baseline_snapshot"
+        hash_file "$baseline_snapshot" > "$baseline_hash"
+        log_ok "authorized_keys baseline saved."
+        return
+    fi
+
+    if [ -f "$baseline_snapshot" ] && [ -f "$baseline_hash" ]; then
+        expected_hash=$(cat "$baseline_hash")
+        if [ "$expected_hash" != "$current_hash" ]; then
+            log_warning "authorized_keys changed since baseline." "Review added or removed SSH keys before accepting the new baseline."
+            diff -u "$baseline_snapshot" "$snapshot" 2>/dev/null | append_output || true
+        else
+            log_ok "authorized_keys match the saved baseline."
+        fi
+    else
+        log_info "No authorized_keys baseline found."
+    fi
 }
 
 
@@ -132,6 +181,7 @@ check_ssh() {
 
     ssh_configuration
     ssh_fail2ban
+    ssh_authorized_keys_diff
 }
 
 

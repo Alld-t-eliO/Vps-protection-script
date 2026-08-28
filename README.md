@@ -72,6 +72,14 @@ sudo ./main.sh --all --json-only
 | `--json-only` | Suppress normal terminal output and print `findings.json` at the end. |
 | `--no-color` | Disable ANSI color output. |
 | `--config <path>` | Load a custom Bash config file. |
+| `--profile <name>` | Load an audit profile from `profiles/<name>.conf`. Built-ins: `workstation`, `server`, `docker-host`, `paranoid`. |
+| `--plugin <name>` | Run one plugin from `plugins/<name>.sh`. |
+| `--plugins` | Load and run every plugin in `plugins/`. |
+| `--save-baseline` | Save current findings as a signed baseline under `baselines/`. |
+| `--compare-baseline` | Compare current findings with the signed baseline and verify the baseline hash. |
+| `--format jsonl` | Print JSON Lines findings to stdout and write `findings.jsonl`. |
+| `--syslog` | Export findings to local syslog through `logger`. |
+| `--webhook-url <url>` | POST `findings.json` to a webhook endpoint. |
 | `-h`, `--help` | Show help. |
 
 ## Output Files
@@ -85,8 +93,10 @@ logs_scan/vps-security-scan-YYYY-MM-DD_HH-MM-SS/
   summary.txt
   findings.tsv
   findings.json
+  findings.jsonl
   report.html
   compare-last.txt
+  compare-baseline.txt
 ```
 
 | File | Purpose |
@@ -96,8 +106,60 @@ logs_scan/vps-security-scan-YYYY-MM-DD_HH-MM-SS/
 | `summary.txt` | Score, counts, and top issues. |
 | `findings.tsv` | Simple tab-separated finding store used for comparisons. |
 | `findings.json` | Structured output for scripts, dashboards, CI, or ingestion. |
+| `findings.jsonl` | SIEM-friendly JSON Lines export. |
 | `report.html` | Standalone visual report for review in a browser. |
 | `compare-last.txt` | Created when `--compare-last` is used. |
+| `compare-baseline.txt` | Created when `--compare-baseline` is used. |
+
+## Profiles
+
+Profiles live in `profiles/` and can define default scan sets and severity choices:
+
+```bash
+sudo ./main.sh --profile workstation
+sudo ./main.sh --profile server
+sudo ./main.sh --profile docker-host
+sudo ./main.sh --profile paranoid
+```
+
+When a profile is used without explicit scan options, its `PROFILE_SCANS` list is used.
+
+## Signed Baselines
+
+Create a trusted reference point:
+
+```bash
+sudo ./main.sh --all --save-baseline
+```
+
+Compare future scans with it:
+
+```bash
+sudo ./main.sh --all --compare-baseline
+```
+
+The scanner stores a SHA-256 hash next to the baseline and verifies it before comparison.
+
+## Plugins
+
+Plugins live in `plugins/`. Each plugin exposes a function named after the file:
+
+```bash
+plugins/nginx.sh       # exposes check_nginx
+plugins/databases.sh   # exposes check_databases
+```
+
+Run one plugin:
+
+```bash
+sudo ./main.sh --plugin nginx
+```
+
+Run all plugins:
+
+```bash
+sudo ./main.sh --plugins
+```
 
 ## Finding Levels
 
@@ -145,6 +207,14 @@ Use JSON output for tooling:
 
 ```bash
 sudo ./main.sh --all --json-only > latest-findings.json
+sudo ./main.sh --all --format jsonl > latest-findings.jsonl
+```
+
+Export to syslog or a webhook:
+
+```bash
+sudo ./main.sh --all --syslog
+sudo ./main.sh --all --webhook-url https://example.invalid/security-webhook
 ```
 
 ## Recommended Server Baseline
@@ -169,6 +239,8 @@ The included GitHub Actions workflow validates Bash syntax for:
 - `security-checkup.sh`
 - `install.sh`
 - all `lib/*.sh` modules
+- all `plugins/*.sh` plugins
+- `tests/run.sh`
 
 ## Privacy And Safety
 
