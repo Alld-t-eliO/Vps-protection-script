@@ -1,43 +1,118 @@
-ssh_remote_login() {
-    subsection "REMOTE LOGIN / SSH"
+ssh_configuration() {
+    subsection "SSH CONFIGURATION"
 
-    status=$(systemsetup -getremotelogin 2>/dev/null || true)
+    ssh_config=$(sshd -T 2>/dev/null)
 
-    if [ -z "$status" ]; then
-        log_info "Run with sudo to inspect Remote Login."
+    if [ -z "$ssh_config" ]; then
+        log_error "Unable to read effective sshd configuration."
         return
     fi
 
-    log "$status"
+    root_login=$(
+        echo "$ssh_config" \
+        | awk '$1 == "permitrootlogin" {print $2}'
+    )
 
-    if echo "$status" | grep -qi "Off"; then
-        log_ok "Remote Login / SSH is disabled."
+    password_auth=$(
+        echo "$ssh_config" \
+        | awk '$1 == "passwordauthentication" {print $2}'
+    )
+
+    log "PermitRootLogin: $root_login"
+    log "PasswordAuthentication: $password_auth"
+
+    if [ -z "$root_login" ]; then
+        log_error "Unable to determine PermitRootLogin."
+    elif [ "$root_login" = "no" ]; then
+        log_ok "Root login is disabled."
     else
-        log_warning "Remote Login / SSH is enabled."
+        log_critical "Root SSH login is not fully disabled: $root_login"
+    fi
+
+    if [ -z "$password_auth" ]; then
+        log_error "Unable to determine PasswordAuthentication."
+    elif [ "$password_auth" = "no" ]; then
+        log_ok "Password authentication is disabled."
+    else
+        log_critical "SSH password authentication is enabled."
     fi
 }
 
 
-ssh_listening() {
-    subsection "SSH LISTENING"
+ssh_fail2ban() {
+    subsection "FAIL2BAN SSH"
 
-    ssh_ports=$(
-        lsof -nP -iTCP:22 -sTCP:LISTEN 2>/dev/null || true
-    )
-
-    if [ -z "$ssh_ports" ]; then
-        log_ok "No SSH listener detected."
+    if ! command -v fail2ban-client >/dev/null 2>&1; then
+        log_info "Fail2Ban is not installed."
         return
     fi
 
-    echo "$ssh_ports" | append_output
-    log_warning "SSH is listening on TCP port 22."
+    if ! systemctl is-active --quiet fail2ban; then
+        log_warning "Fail2Ban is not running."
+        return
+    fi
+
+    fail2ban-client status sshd \
+    | append_output
+}
+
+
+ssh_current_connections() {
+    subsection "CURRENT SSH CONNECTIONS"
+
+    connections=$(
+        ss -tnp 2>/dev/null \
+        | grep ssh || true
+    )
+
+    if [ -z "$connections" ]; then
+        log_info "No current SSH connections detected."
+        return
+    fi
+
+    echo "$connections" \
+    | append_output
+}
+
+
+ssh_successful_connections() {
+    subsection "SUCCESSFUL SSH CONNECTIONS"
+
+    journalctl -u ssh --no-pager -q 2>/dev/null \
+    | grep "Accepted" \
+    | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+    | sort \
+    | uniq -c \
+    | sort -nr \
+    | append_output
+}
+
+
+ssh_failed_attempts() {
+    subsection "FAILED SSH ATTEMPTS - LAST 24H"
+
+    journalctl -u ssh --since "24 hours ago" --no-pager -q 2>/dev/null \
+    | grep -E "Failed password|Invalid user|authentication failure" \
+    | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+    | sort \
+    | uniq -c \
+    | sort -nr \
+    | append_output
 }
 
 
 check_ssh() {
-    section "SSH / REMOTE ACCESS"
+    section "SSH"
 
-    ssh_remote_login
-    ssh_listening
+    ssh_configuration
+    ssh_fail2ban
+}
+
+
+check_ssh_activity() {
+    section "SSH ACTIVITY"
+
+    ssh_successful_connections
+    ssh_failed_attempts
+    ssh_current_connections
 }
