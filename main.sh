@@ -6,19 +6,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "$SCRIPT_DIR/lib/core.sh"
 source "$SCRIPT_DIR/lib/users.sh"
-source "$SCRIPT_DIR/lib/security.sh"
 source "$SCRIPT_DIR/lib/network.sh"
 source "$SCRIPT_DIR/lib/ssh.sh"
 source "$SCRIPT_DIR/lib/firewall.sh"
-source "$SCRIPT_DIR/lib/sharing.sh"
-source "$SCRIPT_DIR/lib/persistence.sh"
-source "$SCRIPT_DIR/lib/processes.sh"
+source "$SCRIPT_DIR/lib/docker.sh"
 source "$SCRIPT_DIR/lib/services.sh"
 source "$SCRIPT_DIR/lib/updates.sh"
 source "$SCRIPT_DIR/lib/filesystem.sh"
-source "$SCRIPT_DIR/lib/docker.sh"
 
-TOOL_NAME="Mac Security Center"
+TOOL_NAME="VPS Security Checkup"
 VERSION="1.1.0"
 GITHUB_NAME="Aegon"
 
@@ -27,15 +23,14 @@ banner() {
     echo -e "${PURPLE}"
 
     cat << 'EOF'
+____   ____    .__    _________
+\   \ /   /_ __|  |  /   _____/ ____ _____    ____
+ \   Y   /  |  \  |  \_____  \_/ ___\\__  \  /    \
+  \     /|  |  /  |__/        \  \___ / __ \|   |  \
+   \___/ |____/|____/_______  /\___  >____  /___|  /
+                            \/     \/     \/     \/
 
- ____   ____    .__    _________
- \   \ /   /_ __|  |  /   _____/ ____ _____    ____
-  \   Y   /  |  \  |  \_____  \_/ ___\\__  \  /    \
-   \     /|  |  /  |__/        \  \___ / __ \|   |  \
-    \___/ |____/|____/_______  /\___  >____  /___|  /
-                             \/     \/     \/     \/
-
-       SECURITY CHECKUP - MAC VERSION
+      SECURITY CHECKUP
 
 EOF
 
@@ -48,16 +43,13 @@ EOF
 
 
 header() {
-    section "MAC SECURITY CHECKUP"
+    section "VPS SECURITY CHECKUP"
 
     log "Date: $(date)"
     log "Hostname: $(hostname)"
-    log "User: $(whoami)"
-    log "macOS: $(sw_vers -productVersion 2>/dev/null || echo unknown)"
-    log "Build: $(sw_vers -buildVersion 2>/dev/null || echo unknown)"
     log "Kernel: $(uname -r)"
     log "Architecture: $(uname -m)"
-    log "Uptime: $(uptime)"
+    log "Uptime: $(uptime -p 2>/dev/null || uptime)"
 }
 
 
@@ -69,19 +61,15 @@ usage() {
     echo ""
     echo -e "${PURPLE}Available scans:${RESET}"
     echo ""
-    echo "  --all          Run complete Mac security checkup"
-    echo "  --users        Scan local users and administrators"
-    echo "  --security     Scan FileVault, Gatekeeper, SIP and XProtect"
-    echo "  --network      Scan interfaces, ports and connections"
-    echo "  --ssh          Scan Remote Login and SSH listeners"
-    echo "  --firewall     Scan macOS Application Firewall"
-    echo "  --sharing      Scan remote/sharing services"
-    echo "  --persistence  Scan login items, LaunchAgents and shell startup files"
-    echo "  --processes    Scan running processes"
-    echo "  --services     Scan Homebrew services"
-    echo "  --updates      Check macOS updates"
-    echo "  --filesystem   Scan SSH key permissions and writable sensitive paths"
-    echo "  --docker       Scan Docker configuration"
+    echo "  --all          Run complete security checkup"
+    echo "  --users        Scan users and UID configuration"
+    echo "  --network      Scan network connections and listening ports"
+    echo "  --ssh          Scan SSH configuration and activity"
+    echo "  --firewall     Scan UFW firewall configuration"
+    echo "  --docker       Scan Docker configuration and containers"
+    echo "  --services     Scan system services and processes"
+    echo "  --updates      Scan available package/security updates"
+    echo "  --filesystem   Scan filesystem and sensitive permissions"
     echo ""
     echo "  --strict       Exit with code 1 if warning, error or critical findings exist"
     echo "  --output-dir   Write scan artifacts under a custom directory"
@@ -96,28 +84,25 @@ usage() {
     echo -e "${PURPLE}Examples:${RESET}"
     echo ""
     echo "  sudo $0 --all"
-    echo "  $0 --security --network --firewall"
-    echo "  $0 --persistence --filesystem"
-    echo "  $0 --processes --docker"
-    echo "  $0 --all --strict --compare-last"
-    echo "  $0 --all --output-dir /tmp/mac-scans"
+    echo "  sudo $0 --ssh"
+    echo "  sudo $0 --docker --firewall"
+    echo "  sudo $0 --ssh --network --users"
+    echo "  sudo $0 --all --strict --compare-last"
+    echo "  sudo $0 --all --output-dir /var/log/vps-security-scans"
     echo ""
 }
 
 
 scan_all() {
     check_users
-    check_security
     check_network
     check_ssh
+    check_ssh_activity
     check_firewall
-    check_sharing
-    check_persistence
-    check_processes
-    check_services
+    check_docker
+    check_services_processes
     check_updates
     check_filesystem
-    check_docker
 }
 
 
@@ -131,38 +116,27 @@ run_option() {
         --users)
             check_users
             ;;
-        --security)
-            check_security
-            ;;
         --network)
             check_network
             ;;
         --ssh)
             check_ssh
+            check_ssh_activity
             ;;
         --firewall)
             check_firewall
             ;;
-        --sharing)
-            check_sharing
-            ;;
-        --persistence)
-            check_persistence
-            ;;
-        --processes)
-            check_processes
+        --docker)
+            check_docker
             ;;
         --services)
-            check_services
+            check_services_processes
             ;;
         --updates)
             check_updates
             ;;
         --filesystem)
             check_filesystem
-            ;;
-        --docker)
-            check_docker
             ;;
         -h|--help)
             usage

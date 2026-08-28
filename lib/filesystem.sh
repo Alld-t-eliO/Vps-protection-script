@@ -1,74 +1,94 @@
-ssh_key_permissions() {
-    subsection "SSH KEY PERMISSIONS"
+filesystem_world_writable() {
+    subsection "WORLD-WRITABLE FILES"
 
-    if [ ! -d "$HOME/.ssh" ]; then
-        log_info "No ~/.ssh directory found."
+    files=$(
+        find / -xdev -type f -perm -0002 2>/dev/null
+    )
+
+    if [ -z "$files" ]; then
+        log_ok "No world-writable files detected."
         return
     fi
 
-    find "$HOME/.ssh" -maxdepth 1 -type f -print 2>/dev/null \
-    | while read -r file; do
-        permissions=$(stat -f "%Lp %Su:%Sg" "$file" 2>/dev/null || true)
+    count=$(echo "$files" | wc -l)
 
-        case "$file" in
-            *.pub|known_hosts|config)
-                log_info "$file | mode=$permissions"
-                ;;
-            *)
-                mode=$(stat -f "%Lp" "$file" 2>/dev/null || echo 999)
-                if [ "$mode" -le 600 ]; then
-                    log_ok "$file has restrictive permissions."
-                else
-                    log_warning "$file may be too permissive: mode=$permissions"
-                fi
-                ;;
-        esac
+    log_warning "$count world-writable file(s) detected." "Review ownership and remove world-write permissions where unnecessary."
+
+    echo "$files" \
+    | append_output
+}
+
+
+filesystem_suid_sgid() {
+    subsection "SUID / SGID FILES"
+
+    files=$(
+        find / -xdev -type f \
+        \( -perm -4000 -o -perm -2000 \) \
+        2>/dev/null
+    )
+
+    if [ -z "$files" ]; then
+        log_ok "No SUID/SGID files detected."
+        return
+    fi
+
+    log_info "SUID/SGID files detected for review:"
+
+    echo "$files" \
+    | append_output
+}
+
+
+filesystem_sensitive_permissions() {
+    subsection "SENSITIVE FILE PERMISSIONS"
+
+    files=(
+        "/etc/passwd"
+        "/etc/shadow"
+        "/etc/group"
+        "/etc/gshadow"
+        "/etc/ssh/sshd_config"
+    )
+
+    for file in "${files[@]}"; do
+
+        if [ ! -e "$file" ]; then
+            log_warning "$file does not exist."
+            continue
+        fi
+
+        permissions=$(stat -c "%a" "$file")
+        owner=$(stat -c "%U:%G" "$file")
+
+        log "$file -> permissions=$permissions owner=$owner"
     done
 }
 
 
-ssh_authorized_keys() {
-    subsection "SSH AUTHORIZED KEYS"
+filesystem_tmp_mount_options() {
+    subsection "TMP MOUNT OPTIONS"
 
-    file="$HOME/.ssh/authorized_keys"
+    for mountpoint in /tmp /var/tmp /dev/shm; do
+        if findmnt "$mountpoint" >/dev/null 2>&1; then
+            options=$(findmnt -no OPTIONS "$mountpoint" 2>/dev/null || true)
+            log "$mountpoint -> $options"
 
-    if [ ! -f "$file" ]; then
-        log_info "No authorized_keys file found."
-        return
-    fi
-
-    permissions=$(stat -f "%Lp %Su:%Sg" "$file" 2>/dev/null || true)
-    key_count=$(grep -vc '^[[:space:]]*$' "$file" 2>/dev/null || echo 0)
-    log_info "$file | mode=$permissions | keys=$key_count"
-}
-
-
-world_writable_sensitive_paths() {
-    subsection "WORLD-WRITABLE SENSITIVE PATHS"
-
-    paths=$(
-        find "$HOME" /Library/LaunchAgents /Library/LaunchDaemons \
-            -maxdepth 2 \
-            -perm -0002 \
-            -type d \
-            -print 2>/dev/null \
-        | head -n 50
-    )
-
-    if [ -z "$paths" ]; then
-        log_ok "No world-writable sensitive paths found in selected locations."
-        return
-    fi
-
-    echo "$paths" | append_output
-    log_warning "Review world-writable paths listed above."
+            echo "$options" | grep -qw noexec || log_warning "$mountpoint is missing noexec." "Consider adding noexec for $mountpoint if application compatibility allows it."
+            echo "$options" | grep -qw nosuid || log_warning "$mountpoint is missing nosuid." "Consider adding nosuid for $mountpoint."
+            echo "$options" | grep -qw nodev || log_warning "$mountpoint is missing nodev." "Consider adding nodev for $mountpoint."
+        else
+            log_info "$mountpoint is not a separate mount."
+        fi
+    done
 }
 
 
 check_filesystem() {
-    section "FILESYSTEM"
+    section "FILESYSTEM / PERMISSIONS"
 
-    ssh_key_permissions
-    ssh_authorized_keys
-    world_writable_sensitive_paths
+    filesystem_world_writable
+    filesystem_suid_sgid
+    filesystem_sensitive_permissions
+    filesystem_tmp_mount_options
 }

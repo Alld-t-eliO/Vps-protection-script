@@ -1,19 +1,15 @@
-# Mac Security Center
+# VPS Security Checkup
 
-Mac Security Center is a modular Bash security and system audit tool for macOS.
+VPS Security Checkup is a modular Bash security and system audit tool for Linux servers.
 
-It checks local users, Apple security controls, network exposure, SSH/remote access, firewall state, sharing services, persistence locations, Homebrew, filesystem permissions, Docker, and system updates. Every scan creates structured artifacts that can be reviewed by a person or consumed by automation.
+It focuses on practical checks that matter for internet-facing VPS hosts: users, sudo access, SSH hardening, firewall state, network exposure, Docker, services, processes, package updates, reboot requirements, cron jobs, systemd timers, and sensitive filesystem permissions.
+
+Every scan creates structured artifacts that can be reviewed manually, archived, compared over time, or consumed by automation.
 
 ## Quick Start
 
 ```bash
 chmod +x main.sh security-checkup.sh install.sh
-./main.sh --all
-```
-
-Some checks return more complete data when run with administrator privileges:
-
-```bash
 sudo ./main.sh --all
 ```
 
@@ -25,49 +21,45 @@ To install a global command:
 
 ```bash
 sudo ./install.sh
-mac-checkup --all
+sudo vps-checkup --all
 ```
 
 You can customize the install target:
 
 ```bash
-sudo TARGET_DIR=/usr/local/bin COMMAND_NAME=mac-security-checkup ./install.sh
+sudo TARGET_DIR=/usr/local/bin COMMAND_NAME=server-checkup ./install.sh
 ```
 
 ## Usage
 
 ```bash
-./main.sh [scan options] [global options]
+sudo ./main.sh [scan options] [global options]
 ```
 
 Examples:
 
 ```bash
-./main.sh --security --network --firewall
-./main.sh --persistence --filesystem
-./main.sh --all --compare-last
-./main.sh --all --strict
-./main.sh --all --output-dir "$HOME/Desktop/mac-security-scans"
-./main.sh --all --json-only
+sudo ./main.sh --ssh --network --users
+sudo ./main.sh --docker --firewall
+sudo ./main.sh --all --compare-last
+sudo ./main.sh --all --strict
+sudo ./main.sh --all --output-dir /var/log/vps-security-scans
+sudo ./main.sh --all --json-only
 ```
 
 ## Scan Options
 
 | Option | Description |
 | --- | --- |
-| `--all` | Run the complete macOS security checkup. |
-| `--users` | List local users and administrator accounts. |
-| `--security` | Check FileVault, Gatekeeper, SIP, XProtect, profiles, and app signatures. |
-| `--network` | Inspect interfaces, listening ports, established connections, DNS, and proxy settings. |
-| `--ssh` | Check Remote Login and SSH listeners. |
-| `--firewall` | Check the macOS Application Firewall, stealth mode, and app rules. |
-| `--sharing` | Detect selected remote sharing services. |
-| `--persistence` | Inspect login items, LaunchAgents, LaunchDaemons, shell startup files, and browser extension paths. |
-| `--processes` | Show top CPU, top memory, and root-owned processes. |
-| `--services` | Check Homebrew services and outdated packages. |
-| `--updates` | Check macOS software updates. |
-| `--filesystem` | Check SSH key permissions, authorized keys, and selected writable paths. |
+| `--all` | Run the complete VPS security checkup. |
+| `--users` | List valid-shell users, UID 0 accounts, sudo group membership, and NOPASSWD rules. |
+| `--network` | Show listening ports and connected remote IPs. |
+| `--ssh` | Check effective SSH configuration, Fail2Ban, current SSH sessions, accepted logins, and failed attempts. |
+| `--firewall` | Check UFW status, UFW rules, and listening ports. |
 | `--docker` | Check Docker daemon state, containers, exposed ports, privileged containers, and container users. |
+| `--services` | Show running services, enabled services, failed services, root processes, top processes, cron jobs, and systemd timers. |
+| `--updates` | Check package updates, security updates, and reboot requirements. Supports `apt`, `dnf`, and `yum` where available. |
+| `--filesystem` | Check world-writable files, SUID/SGID files, sensitive file permissions, and `/tmp` mount hardening options. |
 
 ## Global Options
 
@@ -87,7 +79,7 @@ Examples:
 Each scan creates a timestamped directory:
 
 ```text
-logs_scan/mac-security-scan-YYYY-MM-DD_HH-MM-SS/
+logs_scan/vps-security-scan-YYYY-MM-DD_HH-MM-SS/
   report.txt
   scan.log
   summary.txt
@@ -113,7 +105,7 @@ logs_scan/mac-security-scan-YYYY-MM-DD_HH-MM-SS/
 | --- | --- |
 | `OK` | Expected secure or healthy state. |
 | `INFO` | Informational data or a non-actionable observation. |
-| `WARNING` | Review recommended. May be acceptable depending on your setup. |
+| `WARNING` | Review recommended. May be acceptable depending on your server role. |
 | `ERROR` | The scanner could not complete an important check. |
 | `CRITICAL` | High-risk condition that should be reviewed quickly. |
 
@@ -130,30 +122,44 @@ config/default.conf
 Use a custom config file:
 
 ```bash
-./main.sh --all --config ./config/workstation.conf
+sudo ./main.sh --all --config ./config/production.conf
 ```
 
 The config is a Bash file, so keep it trusted and local.
 
 ## Automation
 
-Run quietly from cron or a scheduled task:
+Run quietly from cron:
 
-```bash
-./main.sh --all --quiet --compare-last --output-dir "$HOME/security-scans"
+```cron
+15 3 * * * /opt/vps-security-checkup/main.sh --all --quiet --compare-last --output-dir /var/log/vps-security-scans
 ```
 
 Use strict mode in CI:
 
 ```bash
-./main.sh --security --firewall --strict
+sudo ./main.sh --ssh --firewall --strict
 ```
 
 Use JSON output for tooling:
 
 ```bash
-./main.sh --all --json-only > latest-findings.json
+sudo ./main.sh --all --json-only > latest-findings.json
 ```
+
+## Recommended Server Baseline
+
+For an internet-facing VPS, review these findings carefully:
+
+- SSH password authentication should be disabled.
+- Root SSH login should be disabled.
+- A firewall or equivalent cloud security group should be active.
+- Fail2Ban or another rate-limiting control should protect SSH.
+- Package and security updates should be applied regularly.
+- Reboot-required indicators should not be ignored.
+- Docker containers should avoid privileged mode and root users.
+- `/tmp`, `/var/tmp`, and `/dev/shm` should use `noexec`, `nosuid`, and `nodev` where compatible.
+- Sudo `NOPASSWD` rules should be tightly scoped or removed.
 
 ## Repository Validation
 
@@ -168,8 +174,8 @@ The included GitHub Actions workflow validates Bash syntax for:
 
 The scanner runs locally and writes local artifacts. It does not upload data by itself.
 
-Reports may contain usernames, process names, local paths, network connections, app names, and Docker metadata. Review reports before sharing them publicly.
+Reports may contain usernames, process names, IP addresses, service names, package names, local paths, SSH metadata, and Docker metadata. Review reports before sharing them publicly.
 
 ## Limitations
 
-This tool is an audit helper, not an antivirus, EDR, or full compliance scanner. Some macOS security data is protected by privacy controls and may require Full Disk Access, administrator privileges, or manual verification.
+This tool is an audit helper, not a full vulnerability scanner, EDR, IDS, or compliance product. It surfaces local configuration risks and operational signals that still require human review.

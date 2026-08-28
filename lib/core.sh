@@ -1,7 +1,7 @@
 set -o pipefail
 
 SCAN_ID="${SCAN_ID:-$(date +%Y-%m-%d_%H-%M-%S)}"
-SCAN_PREFIX="${SCAN_PREFIX:-mac-security-scan}"
+SCAN_PREFIX="${SCAN_PREFIX:-vps-security-scan}"
 LOG_ROOT="${LOG_ROOT:-${SCRIPT_DIR:-$PWD}/logs_scan}"
 SCAN_DIR="${SCAN_DIR:-$LOG_ROOT/$SCAN_PREFIX-$SCAN_ID}"
 REPORT="${REPORT:-$SCAN_DIR/report.txt}"
@@ -65,23 +65,19 @@ init_scan() {
 
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-
     RED=$'\033[0;31m'
     CYAN=$'\033[0;36m'
     PURPLE=$'\033[0;35m'
     GREEN=$'\033[0;32m'
     YELLOW=$'\033[0;33m'
     RESET=$'\033[0m'
-
 else
-
     RED=""
     CYAN=""
     PURPLE=""
     GREEN=""
     YELLOW=""
     RESET=""
-
 fi
 
 
@@ -179,23 +175,23 @@ section() {
 
     if [ "$QUIET_MODE" -eq 0 ]; then
         echo ""
-        echo -e "${PURPLE}============================================================${RESET}"
+        echo -e "${PURPLE}==============================${RESET}"
         echo -e "${PURPLE} $1${RESET}"
-        echo -e "${PURPLE}============================================================${RESET}"
+        echo -e "${PURPLE}==============================${RESET}"
     fi
 
     {
         echo ""
-        echo "============================================================"
+        echo "=============================="
         echo " $1"
-        echo "============================================================"
+        echo "=============================="
     } >> "$REPORT"
 
     {
         echo ""
-        echo "============================================================"
+        echo "=============================="
         echo " $1"
-        echo "============================================================"
+        echo "=============================="
     } >> "$SCAN_LOG"
 }
 
@@ -206,23 +202,23 @@ subsection() {
 
     if [ "$QUIET_MODE" -eq 0 ]; then
         echo ""
-        echo -e "${PURPLE}------------------------------------------------------------${RESET}"
+        echo -e "${PURPLE}------------------------------${RESET}"
         echo -e "${PURPLE} $1${RESET}"
-        echo -e "${PURPLE}------------------------------------------------------------${RESET}"
+        echo -e "${PURPLE}------------------------------${RESET}"
     fi
 
     {
         echo ""
-        echo "------------------------------------------------------------"
+        echo "------------------------------"
         echo " $1"
-        echo "------------------------------------------------------------"
+        echo "------------------------------"
     } >> "$REPORT"
 
     {
         echo ""
-        echo "------------------------------------------------------------"
+        echo "------------------------------"
         echo " $1"
-        echo "------------------------------------------------------------"
+        echo "------------------------------"
     } >> "$SCAN_LOG"
 }
 
@@ -286,7 +282,7 @@ write_summary() {
     fi
 
     {
-        echo "Mac Security Center summary"
+        echo "VPS Security Checkup summary"
         echo "Scan ID: $SCAN_ID"
         echo "Score: $score/100"
         echo "OK: $OK_COUNT"
@@ -313,7 +309,7 @@ write_html_report() {
         echo "<head>"
         echo "<meta charset=\"utf-8\">"
         echo "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
-        echo "<title>Mac Security Center Report</title>"
+        echo "<title>VPS Security Checkup Report</title>"
         echo "<style>"
         echo "body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;margin:0;background:#f6f7f9;color:#15171a}"
         echo "header{background:#111827;color:#fff;padding:28px 32px}"
@@ -329,7 +325,7 @@ write_html_report() {
         echo "</style>"
         echo "</head>"
         echo "<body>"
-        echo "<header><h1>Mac Security Center</h1><p>Scan ID: $(html_escape "$SCAN_ID")</p></header>"
+        echo "<header><h1>VPS Security Checkup</h1><p>Scan ID: $(html_escape "$SCAN_ID")</p></header>"
         echo "<main>"
         echo "<section class=\"summary\">"
         echo "<div class=\"card\"><div>Score</div><div class=\"value\">$score/100</div></div>"

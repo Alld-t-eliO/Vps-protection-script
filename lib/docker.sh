@@ -12,10 +12,12 @@ docker_status() {
         return
     fi
 
-    if docker info >/dev/null 2>&1; then
-        log_ok "Docker daemon is running."
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet docker; then
+        log_ok "Docker service is active."
+    elif docker info >/dev/null 2>&1; then
+        log_ok "Docker daemon is reachable."
     else
-        log_warning "Docker is installed but not running."
+        log_warning "Docker is installed but not running." "Start Docker only if required, otherwise remove it to reduce attack surface."
     fi
 }
 
@@ -64,7 +66,6 @@ docker_privileged_containers() {
     fi
 
     while read -r container; do
-
         privileged=$(
             docker inspect \
                 --format '{{.HostConfig.Privileged}}' \
@@ -72,11 +73,10 @@ docker_privileged_containers() {
         )
 
         if [ "$privileged" = "true" ]; then
-            log_warning "$container is privileged."
+            log_warning "$container is running in privileged mode." "Remove privileged mode and grant only the specific capabilities required."
         else
             log_ok "$container is not privileged."
         fi
-
     done <<< "$containers"
 }
 
@@ -104,9 +104,9 @@ docker_users() {
         )
 
         if [ -z "$user" ]; then
-            log_warning "$container uses the image default user, possibly root."
+            log_warning "$container uses the image default user, possibly root." "Set a non-root USER in the Dockerfile or compose service."
         elif [ "$user" = "root" ] || [ "$user" = "0" ]; then
-            log_warning "$container is configured to run as root."
+            log_warning "$container is configured to run as root." "Run the container with a non-root user."
         else
             log_ok "$container runs as user: $user"
         fi
